@@ -37,7 +37,7 @@ champ_data <- function( source = "http://ddragon.leagueoflegends.com/cdn/10.13.1
     champ_names[x] <- gsub("([a-z])([A-Z])", "\\1 \\2", champ_names[x])
   }
   
-  replace(champ_names, champ_names == "Monkey King", "Wukong")
+  champ_names <- replace(champ_names, champ_names == "Monkey King", "Wukong")
   
   champ_info <- data.frame(  champ_names, champ_ids)  
   
@@ -58,7 +58,7 @@ champ_data <- function( source = "http://ddragon.leagueoflegends.com/cdn/10.13.1
 #playoff is automatically false, will update this program if we decide we want to keep regular season data separate
 #week must be an integer, the week of the game (1 through 10)
 
-game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
+game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, playoff_game=NA, week) {
   
   #Save Game ID in list of Game IDs
   setwd(topdir)
@@ -107,6 +107,45 @@ game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
   
   minutes <- floor(as.numeric(game_time)/60)
   seconds <- mod(as.numeric(game_time), 60)
+  
+  #bans (team 1)
+  
+  start <- str_locate(current,'\\"bans\\":')[2]
+  end <- str_locate( substr(current, start, str_length(current)), '\\}\\]\\},')[2]
+  team1bans <- substr(current, start, start+end)
+  start_hold <- start
+  end_hold <- end
+  bans <- rep("", 10)
+  
+  for (x in 1:5) {
+    start <- str_locate(team1bans, 'championId')[2]
+    end <- str_locate(team1bans, 'pickTurn')[1]
+    bans[x] <- substr(team1bans, start+3, end-3)
+    team1bans <- substr(team1bans, end + 5, str_length(team1bans))
+  }
+    
+  
+  current_sub <- substr(current, start_hold+end_hold, str_length(current))
+  start <- str_locate(current_sub,'\\"bans\\":')[2]
+  end <- str_locate( current_sub, '\\}\\]\\}\\],')[2]
+  team2bans <- substr(current_sub, start, start+end)
+  
+  for (x in 6:10) {
+    start <- str_locate(team2bans, 'championId')[2]
+    end <- str_locate(team2bans, 'pickTurn')[1]
+    bans[x] <- substr(team2bans, start+3, end-3)
+    team2bans <- substr(team2bans, end + 5, str_length(team2bans))
+  }
+  
+  bans_in_game <- data.frame(  bans, c(1:10))
+  names(bans_in_game) <- c("champ_ids", "order")
+  all_champs <- champ_data()
+  bans_in_game <- merge(x=bans_in_game, y=all_champs, by="champ_ids", all.x=TRUE)
+  bans_in_game <- bans_in_game[order(bans_in_game$order),]
+  
+  bans_named <- bans_in_game[,3]  
+  
+  
 
   
   
@@ -238,6 +277,17 @@ game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
     
   }
   
+  firstblood <- vector(mode="character", length=10)
+  
+  for (x in 1:10) {
+    
+    start <- str_locate(rawdata[x], "firstBloodKill")[2]
+    end <- str_locate(rawdata[x], "firstBloodAssist")[1]
+    
+    firstblood[x] <- substr(rawdata[x], start+3, end-3)
+    
+  }
+  
   
   #total damage done
   damage <- vector(mode="character", length=10)
@@ -263,6 +313,20 @@ game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
     end <- str_locate(rawdata[x], "goldSpent")[1]
     
     gold[x] <- substr(rawdata[x], start+3, end-3)
+    
+    
+  }
+  
+  #Vision Score
+  vision <- vector(mode="character", length=10)
+  
+  
+  for (x in 1:10) {
+    
+    start <- str_locate(rawdata[x], "visionScore")[2]
+    end <- str_locate(rawdata[x], "timeCCingOthers")[1]
+    
+    vision[x] <- substr(rawdata[x], start+3, end-3)
     
     
   }
@@ -300,10 +364,10 @@ game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
   
   
   
-  
   game_week <- rep(week, 10)
   
   game_playoffs <- rep(playoff, 10)
+  playoff_gamenum <- rep(playoff_game, 10)
   
   team_id <- teams
   
@@ -318,22 +382,120 @@ game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
   timer_vec <- rep(game_time, 10)
   minutes_vec <- rep(minutes, 10)
   seconds_vec <- rep(seconds,10)
+  present_vec <- rep(1,10)
+  
+  for (x in 1:10) {
+    eval(parse( text = paste("ban", x, "_vec <- rep(bans_named[", x, "], 10)", sep="")))
+  }
   
   
   
   empty <- vector(mode="character", length=10)
   
   
-  out_game_data <- data.frame(empty, empty, team_id, game_playoffs, game_week, champ_named, teams, win, 
-                              kills, deaths, assists, damage, gold, cs, 
-                              date_vec, month_vec, day_vec, year_vec, timer_vec)
-  names(out_game_data) <- c("Player", "Position", "Team", "Playoffs", "Week", "Champion", "Side", "Win", 
-                            "Kills", "Deaths", "Assists", "Damage", "Gold", "CS",
-                            "GameDate", "GameMonth", "GameDay", "GameYear", "gameTime"
+  out_game_data <- data.frame(empty, empty, team_id, game_playoffs, playoff_gamenum, game_week, champ_named, teams, win, 
+                              kills, deaths, assists, firstblood, damage, gold, vision, cs, 
+                              date_vec, month_vec, day_vec, year_vec, timer_vec, minutes_vec, seconds_vec, present_vec,
+                              ban1_vec, ban2_vec, ban3_vec, ban4_vec, ban5_vec, ban6_vec, ban7_vec, ban8_vec, ban9_vec, ban10_vec
+                              )
+  names(out_game_data) <- c("Player", "Position", "Team", "Playoffs", "PlayoffGameNumber", "Week", "Champion", "Side", "Win", 
+                            "Kills", "Deaths", "Assists", "FirstBlood", "Damage", "Gold", "Vision", "CS",
+                            "GameDate", "GameMonth", "GameDay", "GameYear", "gameTime", "Minutes", "Seconds", "Present", 
+                            "Ban1", "Ban2", "Ban3", "Ban4", "Ban5", "Ban6", "Ban7", "Ban8", "Ban9", "Ban10"
                             )
   
   return(out_game_data)
 }
+
+
+##champion_data()
+champion_data <- function( dataset) {
+  #All champs
+  champnames <- champ_data()
+  colnames(champnames) <- c("Champion", "champ_ids")
+  
+  #Champs played
+  z <- dataset %>% group_by(Champion) %>% summarise(totpick = sum(Present), totwin = sum(Win), avgdam = mean(Damage))
+  z <- as.data.frame(z)
+  z$totloss <- z$totpick - z$totwin
+  z$winpct <- z$totwin / z$totpick
+  
+  #Champs banned
+  baninfo <- dataset[seq(10,nrow(dataset), by=10), 26:35]
+  baninfo <- cbind(rep(1, nrow(baninfo)), baninfo)
+  names(baninfo)[1] <- "melt"
+  baninfo <- melt(baninfo, id="melt")
+  baninfo <- baninfo[-c(1,2)]
+  baninfo$banned <- rep(1, nrow(baninfo))
+  bans_ <- baninfo %>% group_by(value) %>% summarise(totban = sum(banned))
+  bans <- as.data.frame(bans_)
+  colnames(bans) <- c("Champion", "totban")
+  
+  outframe <- merge(champnames, z, all.x=TRUE, by="Champion")
+  outframe <- merge(outframe, bans, all.x=TRUE, by="Champion")
+  
+  outframe$totpick[is.na(outframe$totpick)] <- 0
+  outframe$totban[is.na(outframe$totban)] <- 0
+  
+  outframe$totpres <- outframe$totban + outframe$totpick
+  numgames = sum(outframe$totpres,na.rm=TRUE) / 20
+  outframe$fracpres <- (outframe$totpres / numgames)
+  
+  setwd(topdir)
+  
+  folder <- "AggData"
+  dir.create(file.path(getwd(), folder), showWarnings = FALSE)
+  
+  setwd(folder)
+  
+  write.csv(outframe, "ChampionData.csv", row.names = FALSE)
+  
+  setwd(topdir)
+  
+  return(outframe)
+  
+}
+  
+
+
+##player_data()
+player_data <- function( dataset) {
+  #All players
+  dataset$minsec = dataset$Minutes + dataset$Seconds / 60
+  dataset$FirstBloodBool = dataset$FirstBlood == "true"
+  x <- dataset %>% group_by(Player) %>% summarise(killtot = sum(Kills), deathtot = sum(Deaths), assisttot =sum(Assists), FBtot = sum(FirstBloodBool), CStot = sum(CS), dmgtot = sum(Damage), 
+                                                  vistot = sum(Vision), gamestot = sum(Present), goldtot = sum(Gold), mintot = sum(minsec))
+  x <- as.data.frame(x)
+  
+  x$cspermin <- x$CStot / x$mintot
+  x$dmgpermin <- x$dmgtot / x$mintot
+  x$goldpermin <- x$goldtot / x$mintot
+  x$avggametime <- x$mintot / x$gamestot
+  x$avgwardscore <- x$vistot / x$gamestot
+  x$kda <- (x$killtot + x$assisttot) / x$deathtot
+  
+  setwd(topdir)
+  
+  folder <- "AggData"
+  dir.create(file.path(getwd(), folder), showWarnings = FALSE)
+  
+  setwd(folder)
+  
+  write.csv(x, "PlayerData.csv", row.names = FALSE)
+  
+  setwd(topdir)
+  
+  return(x)
+}
+
+
+
+
+##team_data()
+
+
+
+
 
 
 #export_data
@@ -342,33 +504,55 @@ game_data <- function(blueTeam, redTeam, key, gameID, playoff=F, week) {
 export_data <- function( dataset ) {
   setwd(topdir)
   
-  name1 <- dataset$Team[1]
-  name2 <- dataset$Team[6]
-  name3 <- dataset$GameMonth[1]
-  name4 <- dataset$GameDay[1]
-  name5 <- ".csv"
-  name <- paste( paste(name1, name2, name3, name4, sep="_"), name5, sep = "")
+  if (dataset$Playoffs[1] == F) {
   
-  week_out <- dataset$Week[1]
-  folder <- paste( "Week", week_out, sep="")
-  dir.create(file.path(getwd(), folder), showWarnings = FALSE)
-  
-  setwd(folder)
-  write.csv(dataset, name, row.names = FALSE)
-  
-  setwd(topdir)
+    name1 <- dataset$Team[1]
+    name2 <- dataset$Team[6]
+    name3 <- dataset$GameMonth[1]
+    name4 <- dataset$GameDay[1]
+    name5 <- ".csv"
+    name <- paste( paste(name1, name2, name3, name4, sep="_"), name5, sep = "")
+    
+    week_out <- dataset$Week[1]
+    folder <- paste( "Week", week_out, sep="")
+    dir.create(file.path(getwd(), folder), showWarnings = FALSE)
+    
+    setwd(folder)
+    write.csv(dataset, name, row.names = FALSE)
+    
+    setwd(topdir)
+  }
+  else {
+    name1 <- dataset$Team[1]
+    name2 <- dataset$Team[6]
+    name3 <- dataset$GameMonth[1]
+    name4 <- dataset$GameDay[1]
+    name5 <- paste0( "game", dataset$PlayoffGameNumber[1])
+    name6 <- ".csv"
+    name <- paste( paste(name1, name2, name3, name4, name5, sep="_"), name6, sep = "")
+    
+    week_out <- dataset$Week[1]
+    folder <- paste( "Week", week_out, sep="")
+    dir.create(file.path(getwd(), folder), showWarnings = FALSE)
+    
+    setwd(folder)
+    write.csv(dataset, name, row.names = FALSE)
+    
+    setwd(topdir)
+  }
+    
 }
-  
+
 
 combine_data <- function() {
   setwd(topdir)
   
   alldata <- data.frame( )
 
-  weeks <- paste("Week", seq(1,10), sep="")
+  weeks <- paste("Week", seq(1,100), sep="")
   maxwk <- 1
   
-  for (x in 1:10) {
+  for (x in 1:100) {
     if (file.exists(weeks[x])) {
       maxwk <- as.numeric(x)
     }
@@ -383,6 +567,10 @@ combine_data <- function() {
     }
     setwd('..')
   }
+  
+  champion_data(alldata)
+  player_data(alldata)
+  #team_data(alldata)
     
   return(alldata)  
   
